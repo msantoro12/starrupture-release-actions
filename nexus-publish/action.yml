@@ -1,0 +1,118 @@
+name: Nexus publish
+description: >
+  Upload a file to a Nexus Mods page, set the page Version field and changelog
+  entry, and optionally replace the page description. Shared by the StarRupture
+  mod release workflows.
+
+inputs:
+  api_key:
+    description: Nexus API key. Pass a secret; it is never printed.
+    required: true
+  mod_id:
+    description: Global (v3 API) id of the mod page, from data.id of GET /v3/games/starrupture/mods/{page id}.
+    required: true
+  file_id:
+    description: Id of the file group to add the new file to.
+    required: true
+  filename:
+    description: Path of the archive to upload.
+    required: true
+  display_name:
+    description: File display name on the page.
+    required: true
+  version:
+    description: Version string for the file and (when update_page is true) the page Version field.
+    required: true
+  file_description:
+    description: Description shown on the uploaded file.
+    required: true
+  changelog:
+    description: Changelog text for this version. Entries append and cannot be removed.
+    required: true
+  update_page:
+    description: >
+      'true' for a repo's primary upload: sets the page Version field, adds the
+      changelog entry and replaces the description. 'false' for a second upload
+      (for example the Server file): only the file is uploaded.
+    required: false
+    default: 'true'
+  description_file:
+    description: >
+      BBCode file (path relative to the workspace) that replaces the page
+      description. Used only when update_page is 'true' and the file exists.
+      {{TAG}} and {{REPO}} in it are replaced with the tag and repo inputs.
+    required: false
+    default: ''
+  tag:
+    description: Release tag substituted for {{TAG}} in the description file.
+    required: false
+    default: ''
+  repo:
+    description: Repository (owner/name) substituted for {{REPO}} in the description file.
+    required: false
+    default: ${{ github.repository }}
+
+runs:
+  using: composite
+  steps:
+    - name: Upload to Nexus Mods (file, page version, changelog)
+      if: ${{ inputs.update_page == 'true' }}
+      uses: Nexus-Mods/upload-action@v1.0.0-beta.11
+      with:
+        api_key: ${{ inputs.api_key }}
+        file_id: ${{ inputs.file_id }}
+        filename: ${{ inputs.filename }}
+        archive_existing_version: true
+        allow_mod_manager_download: false
+        display_name: ${{ inputs.display_name }}
+        description: ${{ inputs.file_description }}
+        update_mod_version: true
+        version: ${{ inputs.version }}
+        mod_id: ${{ inputs.mod_id }}
+        changelog: ${{ inputs.changelog }}
+
+    - name: Upload to Nexus Mods (file only)
+      if: ${{ inputs.update_page != 'true' }}
+      uses: Nexus-Mods/upload-action@v1.0.0-beta.11
+      with:
+        api_key: ${{ inputs.api_key }}
+        file_id: ${{ inputs.file_id }}
+        filename: ${{ inputs.filename }}
+        archive_existing_version: true
+        allow_mod_manager_download: false
+        display_name: ${{ inputs.display_name }}
+        description: ${{ inputs.file_description }}
+        update_mod_version: true
+        version: ${{ inputs.version }}
+
+    # Experimental v3 endpoint: a failure here must not fail the release.
+    - name: Replace the Nexus page description
+      if: ${{ inputs.update_page == 'true' && inputs.description_file != '' }}
+      continue-on-error: true
+      shell: pwsh
+      env:
+        NEXUS_APIKEY: ${{ inputs.api_key }}
+        NEXUS_MOD_ID: ${{ inputs.mod_id }}
+        DESCRIPTION_FILE: ${{ inputs.description_file }}
+        RELEASE_TAG: ${{ inputs.tag }}
+        RELEASE_REPO: ${{ inputs.repo }}
+      run: |
+        try {
+          $path = Join-Path $env:GITHUB_WORKSPACE $env:DESCRIPTION_FILE
+          if (-not (Test-Path -LiteralPath $path)) {
+            Write-Host "No $env:DESCRIPTION_FILE in this repo; leaving the Nexus description as it is."
+            return
+          }
+          $bbcode = Get-Content -Raw -Encoding utf8 -LiteralPath $path
+          if ($env:RELEASE_TAG) { $bbcode = $bbcode.Replace('{{TAG}}', $env:RELEASE_TAG) }
+          $bbcode = $bbcode.Replace('{{REPO}}', $env:RELEASE_REPO)
+          if ($bbcode.Contains('{{')) { throw "$env:DESCRIPTION_FILE still has an unreplaced {{ placeholder (is the tag input set?)" }
+          $json = @{ description = $bbcode.Trim() } | ConvertTo-Json -Compress
+          $resp = Invoke-WebRequest -Method Patch -Uri "https://api.nexusmods.com/v3/mods/$env:NEXUS_MOD_ID" `
+            -Headers @{ apikey = $env:NEXUS_APIKEY } -ContentType 'application/json; charset=utf-8' `
+            -Body ([Text.Encoding]::UTF8.GetBytes($json))
+          if ($resp.StatusCode -ne 204) { throw "PATCH returned $($resp.StatusCode), expected 204" }
+          Write-Host "Nexus description replaced (204)."
+        } catch {
+          Write-Host "::warning title=Nexus description not updated::$($_.Exception.Message) The release is unaffected; update the description by hand."
+        }
