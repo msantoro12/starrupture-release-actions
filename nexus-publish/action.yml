@@ -85,7 +85,6 @@ runs:
         allow_mod_manager_download: false
         display_name: ${{ inputs.display_name }}
         description: ${{ inputs.file_description }}
-        update_mod_version: true
         version: ${{ inputs.version }}
 
     # Experimental v3 endpoint: a failure here must not fail the release.
@@ -117,5 +116,6 @@ runs:
           if ($resp.StatusCode -ne 204) { throw "PATCH returned $($resp.StatusCode), expected 204" }
           Write-Host "Nexus description replaced (204)."
         } catch {
-          Write-Host "::warning title=Nexus description not updated::$($_.Exception.Message) The release is unaffected; update the description by hand."
+          $reason = $_.Exception.Message -replace '\s+', ' '
+          Write-Host "::warning title=Nexus description not updated::$reason The release is unaffected; update the description by hand."
         }
