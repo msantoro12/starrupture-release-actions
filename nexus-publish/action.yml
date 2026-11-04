@@ -27,8 +27,11 @@ inputs:
     description: Description shown on the uploaded file.
     required: true
   changelog:
-    description: Changelog text for this version. Entries append and cannot be removed.
-    required: true
+    description: >
+      Changelog text for this version. Required when update_page is 'true'.
+      Entries append and cannot be removed.
+    required: false
+    default: ''
   update_page:
     description: >
       'true' for a repo's primary upload: sets the page Version field, adds the

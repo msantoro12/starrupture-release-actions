@@ -26,7 +26,8 @@ Uses `Nexus-Mods/upload-action@v1.0.0-beta.11`.
 
 | Input | Notes |
 |---|---|
-| `api_key`, `mod_id`, `file_id`, `filename`, `display_name`, `version`, `file_description`, `changelog` | Required. `mod_id` is the global v3 id (`data.id` of `GET /v3/games/starrupture/mods/{page id}`). |
+| `api_key`, `mod_id`, `file_id`, `filename`, `display_name`, `version`, `file_description` | Required. `mod_id` is the global v3 id (`data.id` of `GET /v3/games/starrupture/mods/{page id}`). |
+| `changelog` | Required when `update_page` is true. |
 | `update_page` | `'true'` (default): primary upload, also sets the page Version, changelog and description. `'false'`: second upload (the Server file), file only; no changelog entry. |
 | `description_file` | Optional BBCode file, relative to the workspace. The page description is replaced only when `update_page` is true and the file exists. |
 | `tag`, `repo` | Substituted for `{{TAG}}` and `{{REPO}}` in the description file. `repo` defaults to the calling repository. A description that still has a `{{` afterwards is not sent. |
