@@ -36,9 +36,11 @@ The description step uses an experimental Nexus endpoint, so a failure there emi
 `::warning::` and the job carries on. The upload step is not soft: a failure fails the job.
 Changelog entries cannot be removed; never re-run a release for a version that already has its entry.
 
-Every upload, Client and Server, is sent with "Mod manager download" on. The upload
-action does not read the file's previous setting, and the API spec does not say that
-leaving it out keeps it.
+Each upload keeps the file's "Mod manager download" setting: the action reads
+`supports_mod_managers` from the file's latest version
+(`GET /v3/mod-files/{id}/versions`) and sends the same value. If it cannot be read, the
+job fails before anything is uploaded. To change the setting, change it on the latest
+version on the Nexus site.
 
 Callers pin a tag, not a branch. `nexus-publish-v1` uploads with "Mod manager
 download" off; the behaviour above is for `nexus-publish-v2`, tagged at release time.

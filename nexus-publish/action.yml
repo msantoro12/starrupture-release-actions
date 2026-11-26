@@ -58,6 +58,36 @@ inputs:
 runs:
   using: composite
   steps:
+    # The new version keeps the "Mod manager download" setting of the file's
+    # latest version. If that cannot be read, this fails and nothing is uploaded.
+    - name: Read the file's mod manager download setting
+      id: current
+      shell: pwsh
+      env:
+        NEXUS_APIKEY: ${{ inputs.api_key }}
+        NEXUS_FILE_ID: ${{ inputs.file_id }}
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $id = [uri]::EscapeDataString($env:NEXUS_FILE_ID)
+        $resp = Invoke-RestMethod -Method Get -Uri "https://api.nexusmods.com/v3/mod-files/$id/versions" -Headers @{ apikey = $env:NEXUS_APIKEY }
+        $versions = @($resp.data.versions | Where-Object { $null -ne $_ })
+        if ($versions.Count -eq 0) { throw "No versions returned for the Nexus file; not uploading." }
+        $ranked = @($versions | ForEach-Object {
+          if (-not "$($_.position)") { throw "A Nexus file version has no position; not uploading." }
+          [pscustomobject]@{
+            Position = [decimal]::Parse("$($_.position)", [cultureinfo]::InvariantCulture)
+            Version  = $_
+          }
+        } | Sort-Object Position -Descending)
+        if ($ranked.Count -gt 1 -and $ranked[0].Position -eq $ranked[1].Position) {
+          throw "Two Nexus file versions share the latest position; not uploading."
+        }
+        $setting = $ranked[0].Version.supports_mod_managers
+        if ($setting -isnot [bool]) { throw "The latest Nexus file version has no supports_mod_managers value; not uploading." }
+        $value = "$setting".ToLowerInvariant()
+        Write-Host "Latest version '$($ranked[0].Version.version)' has mod manager download: $value"
+        "allow_mod_manager_download=$value" >> $env:GITHUB_OUTPUT
+
     - name: Upload to Nexus Mods (file, page version, changelog)
       if: ${{ inputs.update_page == 'true' }}
       uses: Nexus-Mods/upload-action@v1.0.0-beta.11
@@ -66,7 +96,7 @@ runs:
         file_id: ${{ inputs.file_id }}
         filename: ${{ inputs.filename }}
         archive_existing_version: true
-        allow_mod_manager_download: true
+        allow_mod_manager_download: ${{ steps.current.outputs.allow_mod_manager_download }}
         display_name: ${{ inputs.display_name }}
         description: ${{ inputs.file_description }}
         update_mod_version: true
@@ -82,7 +112,7 @@ runs:
         file_id: ${{ inputs.file_id }}
         filename: ${{ inputs.filename }}
         archive_existing_version: true
-        allow_mod_manager_download: true
+        allow_mod_manager_download: ${{ steps.current.outputs.allow_mod_manager_download }}
         display_name: ${{ inputs.display_name }}
         description: ${{ inputs.file_description }}
         version: ${{ inputs.version }}
