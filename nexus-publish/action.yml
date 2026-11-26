@@ -54,20 +54,34 @@ inputs:
     description: Repository (owner/name) substituted for {{REPO}} in the description file.
     required: false
     default: ${{ github.repository }}
+  mod_manager_download:
+    description: >
+      The new version's "Mod manager download" setting. 'true' or 'false' sends
+      that value. 'inherit' (default) reads it from the file's latest live version.
+    required: false
+    default: inherit
 
 runs:
   using: composite
   steps:
-    # The new version keeps the "Mod manager download" setting of the file's
-    # latest live version. If that cannot be read, this fails and nothing is uploaded.
-    - name: Read the file's mod manager download setting
+    # With 'inherit' the new version keeps the "Mod manager download" setting of the
+    # file's latest live version. A bad input or a failed read uploads nothing.
+    - name: Resolve the mod manager download setting
       id: current
       shell: pwsh
       env:
         NEXUS_APIKEY: ${{ inputs.api_key }}
         NEXUS_FILE_ID: ${{ inputs.file_id }}
+        MOD_MANAGER_DOWNLOAD: ${{ inputs.mod_manager_download }}
       run: |
         $ErrorActionPreference = 'Stop'
+        $wanted = $env:MOD_MANAGER_DOWNLOAD
+        if ($wanted -cnotin 'true', 'false', 'inherit') { throw "mod_manager_download must be true, false or inherit; got '$wanted'. Not uploading." }
+        if ($wanted -cne 'inherit') {
+          Write-Host "Mod manager download set by input: $wanted"
+          "allow_mod_manager_download=$wanted" >> $env:GITHUB_OUTPUT
+          return
+        }
         $id = [uri]::EscapeDataString($env:NEXUS_FILE_ID.Trim())
         $resp = Invoke-RestMethod -Method Get -Uri "https://api.nexusmods.com/v3/mod-files/$id/versions" -Headers @{ apikey = $env:NEXUS_APIKEY }
         $versions = @($resp.data.versions | Where-Object { $null -ne $_ })
