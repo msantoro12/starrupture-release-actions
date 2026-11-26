@@ -54,10 +54,56 @@ inputs:
     description: Repository (owner/name) substituted for {{REPO}} in the description file.
     required: false
     default: ${{ github.repository }}
+  mod_manager_download:
+    description: >
+      The new version's "Mod manager download" setting. 'true' or 'false' sends
+      that value. 'inherit' (default) reads it from the file's latest live version.
+    required: false
+    default: inherit
 
 runs:
   using: composite
   steps:
+    # With 'inherit' the new version keeps the "Mod manager download" setting of the
+    # file's latest live version. A bad input or a failed read uploads nothing.
+    - name: Resolve the mod manager download setting
+      id: current
+      shell: pwsh
+      env:
+        NEXUS_APIKEY: ${{ inputs.api_key }}
+        NEXUS_FILE_ID: ${{ inputs.file_id }}
+        MOD_MANAGER_DOWNLOAD: ${{ inputs.mod_manager_download }}
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $wanted = $env:MOD_MANAGER_DOWNLOAD
+        if ($wanted -cnotin 'true', 'false', 'inherit') { throw "mod_manager_download must be true, false or inherit; got '$wanted'. Not uploading." }
+        if ($wanted -cne 'inherit') {
+          Write-Host "Mod manager download set by input: $wanted"
+          "allow_mod_manager_download=$wanted" >> $env:GITHUB_OUTPUT
+          return
+        }
+        $id = [uri]::EscapeDataString($env:NEXUS_FILE_ID.Trim())
+        $resp = Invoke-RestMethod -Method Get -Uri "https://api.nexusmods.com/v3/mod-files/$id/versions" -Headers @{ apikey = $env:NEXUS_APIKEY }
+        $versions = @($resp.data.versions | Where-Object { $null -ne $_ })
+        if ($versions.Count -eq 0) { throw "No versions returned for the Nexus file; not uploading." }
+        $versions = @($versions | Where-Object { $_.category -in 'main', 'update', 'optional', 'miscellaneous' })
+        if ($versions.Count -eq 0) { throw "The Nexus file has no main, update, optional or miscellaneous version; not uploading." }
+        $ranked = @($versions | ForEach-Object {
+          if (-not "$($_.position)") { throw "A Nexus file version has no position; not uploading." }
+          [pscustomobject]@{
+            Position = [decimal]::Parse("$($_.position)", [cultureinfo]::InvariantCulture)
+            Version  = $_
+          }
+        } | Sort-Object Position -Descending)
+        if ($ranked.Count -gt 1 -and $ranked[0].Position -eq $ranked[1].Position) {
+          throw "Two Nexus file versions share the latest position; not uploading."
+        }
+        $setting = $ranked[0].Version.supports_mod_managers
+        if ($setting -isnot [bool]) { throw "The latest Nexus file version has no supports_mod_managers value; not uploading." }
+        $value = "$setting".ToLowerInvariant()
+        Write-Host "Latest live version '$($ranked[0].Version.version)' (id $($ranked[0].Version.id), position $($ranked[0].Position), $($ranked[0].Version.category)) has mod manager download: $value"
+        "allow_mod_manager_download=$value" >> $env:GITHUB_OUTPUT
+
     - name: Upload to Nexus Mods (file, page version, changelog)
       if: ${{ inputs.update_page == 'true' }}
       uses: Nexus-Mods/upload-action@v1.0.0-beta.11
@@ -66,7 +112,7 @@ runs:
         file_id: ${{ inputs.file_id }}
         filename: ${{ inputs.filename }}
         archive_existing_version: true
-        allow_mod_manager_download: false
+        allow_mod_manager_download: ${{ steps.current.outputs.allow_mod_manager_download }}
         display_name: ${{ inputs.display_name }}
         description: ${{ inputs.file_description }}
         update_mod_version: true
@@ -82,7 +128,7 @@ runs:
         file_id: ${{ inputs.file_id }}
         filename: ${{ inputs.filename }}
         archive_existing_version: true
-        allow_mod_manager_download: false
+        allow_mod_manager_download: ${{ steps.current.outputs.allow_mod_manager_download }}
         display_name: ${{ inputs.display_name }}
         description: ${{ inputs.file_description }}
         version: ${{ inputs.version }}

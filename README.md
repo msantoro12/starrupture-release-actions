@@ -30,10 +30,21 @@ Uses `Nexus-Mods/upload-action@v1.0.0-beta.11`.
 | `changelog` | Required when `update_page` is true. |
 | `update_page` | `'true'` (default): primary upload, also sets the page Version, changelog and description. `'false'`: second upload (the Server file), file only; no changelog entry. |
 | `description_file` | Optional BBCode file, relative to the workspace. The page description is replaced only when `update_page` is true and the file exists. |
+| `mod_manager_download` | `'true'`, `'false'` or `'inherit'` (default). Anything else fails before any upload. |
 | `tag`, `repo` | Substituted for `{{TAG}}` and `{{REPO}}` in the description file. `repo` defaults to the calling repository. A description that still has a `{{` afterwards is not sent. |
 
 The description step uses an experimental Nexus endpoint, so a failure there emits a
 `::warning::` and the job carries on. The upload step is not soft: a failure fails the job.
 Changelog entries cannot be removed; never re-run a release for a version that already has its entry.
 
-Callers pin the tag (`nexus-publish-v1`), not a branch.
+`mod_manager_download: 'true'` or `'false'` sends that value as the new version's
+"Mod manager download" setting without reading the file's versions. With `inherit`,
+each upload keeps the file's current setting: the action reads
+`supports_mod_managers` from the file's latest `main`, `update`, `optional` or
+`miscellaneous` version
+(`GET /v3/mod-files/{id}/versions`) and sends the same value. If it cannot be read, the
+job fails before anything is uploaded. Removed, archived and old versions are ignored. To
+change the setting, change it on that latest version on the Nexus site.
+
+Callers pin a tag, not a branch. `nexus-publish-v1` uploads with "Mod manager
+download" off; the behaviour above is for `nexus-publish-v2`, tagged at release time.
