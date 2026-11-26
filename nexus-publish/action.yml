@@ -59,7 +59,7 @@ runs:
   using: composite
   steps:
     # The new version keeps the "Mod manager download" setting of the file's
-    # latest version. If that cannot be read, this fails and nothing is uploaded.
+    # latest live version. If that cannot be read, this fails and nothing is uploaded.
     - name: Read the file's mod manager download setting
       id: current
       shell: pwsh
@@ -68,10 +68,12 @@ runs:
         NEXUS_FILE_ID: ${{ inputs.file_id }}
       run: |
         $ErrorActionPreference = 'Stop'
-        $id = [uri]::EscapeDataString($env:NEXUS_FILE_ID)
+        $id = [uri]::EscapeDataString($env:NEXUS_FILE_ID.Trim())
         $resp = Invoke-RestMethod -Method Get -Uri "https://api.nexusmods.com/v3/mod-files/$id/versions" -Headers @{ apikey = $env:NEXUS_APIKEY }
         $versions = @($resp.data.versions | Where-Object { $null -ne $_ })
         if ($versions.Count -eq 0) { throw "No versions returned for the Nexus file; not uploading." }
+        $versions = @($versions | Where-Object { $_.category -in 'main', 'update', 'optional', 'miscellaneous' })
+        if ($versions.Count -eq 0) { throw "The Nexus file has no main, update, optional or miscellaneous version; not uploading." }
         $ranked = @($versions | ForEach-Object {
           if (-not "$($_.position)") { throw "A Nexus file version has no position; not uploading." }
           [pscustomobject]@{
@@ -85,7 +87,7 @@ runs:
         $setting = $ranked[0].Version.supports_mod_managers
         if ($setting -isnot [bool]) { throw "The latest Nexus file version has no supports_mod_managers value; not uploading." }
         $value = "$setting".ToLowerInvariant()
-        Write-Host "Latest version '$($ranked[0].Version.version)' has mod manager download: $value"
+        Write-Host "Latest live version '$($ranked[0].Version.version)' (id $($ranked[0].Version.id), position $($ranked[0].Position), $($ranked[0].Version.category)) has mod manager download: $value"
         "allow_mod_manager_download=$value" >> $env:GITHUB_OUTPUT
 
     - name: Upload to Nexus Mods (file, page version, changelog)

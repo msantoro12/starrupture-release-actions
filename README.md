@@ -37,10 +37,11 @@ The description step uses an experimental Nexus endpoint, so a failure there emi
 Changelog entries cannot be removed; never re-run a release for a version that already has its entry.
 
 Each upload keeps the file's "Mod manager download" setting: the action reads
-`supports_mod_managers` from the file's latest version
+`supports_mod_managers` from the file's latest `main`, `update`, `optional` or
+`miscellaneous` version
 (`GET /v3/mod-files/{id}/versions`) and sends the same value. If it cannot be read, the
-job fails before anything is uploaded. To change the setting, change it on the latest
-version on the Nexus site.
+job fails before anything is uploaded. Removed, archived and old versions are ignored. To
+change the setting, change it on that latest version on the Nexus site.
 
 Callers pin a tag, not a branch. `nexus-publish-v1` uploads with "Mod manager
 download" off; the behaviour above is for `nexus-publish-v2`, tagged at release time.
